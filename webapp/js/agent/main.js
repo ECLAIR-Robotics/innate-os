@@ -232,6 +232,12 @@ function buildAgentView(root) {
         cb(event);
       }, undefined, "std_msgs/msg/String"),
   });
+  const cornerControls = document.createElement("div");
+  cornerControls.className = "agent-corner-controls";
+  const cameraToggle = cornerStack.querySelector(".cam-strip-toggle");
+  cornerStack.prepend(cornerControls);
+  if (cameraToggle) cornerControls.append(cameraToggle);
+  cornerControls.append(studio.mobileToggle);
   holdBootSplash(studio.settled);
 
   const isSceneSurface = (/** @type {EventTarget | null} */ target) =>
@@ -250,13 +256,15 @@ function buildAgentView(root) {
     });
   }
 
+  const viewportMeta = document.querySelector('meta[name="viewport"]');
+  const originalViewport = viewportMeta?.getAttribute("content") ?? "";
   const compactLayout = window.matchMedia(COMPACT_LAYOUT_QUERY);
   const monitorTooNarrow = window.matchMedia(BRAIN_MONITOR_QUERY);
 
   // The dock floats over the feed, so the canvas's centre is behind it. Video
   // stages ignore this: a real camera's framing is the robot's to decide.
   const dockPanel = /** @type {HTMLElement | null} */ (root.querySelector(".agent-panel"));
-  const setSafeInsets = /** @type {{ setSafeInsets?: (i: { right?: number }) => void }} */ (
+  const setSafeInsets = /** @type {{ setSafeInsets?: (i: { right?: number; bottom?: number; top?: number; left?: number }) => void }} */ (
     videoStage
   ).setSafeInsets;
   const reportSafeArea = () => {
@@ -266,24 +274,55 @@ function buildAgentView(root) {
     // the dock rather than under it, so nothing is covered.
     const canvas = feed.getBoundingClientRect();
     const dock = dockPanel.getBoundingClientRect();
-    const covered = compactLayout.matches ? 0 : Math.max(0, canvas.right - dock.left);
-    setSafeInsets({ right: Math.min(covered, canvas.width) });
+    const controls = root.getBoundingClientRect();
+    const covered = compactLayout.matches
+      ? Math.max(0, canvas.right - controls.right)
+      : Math.max(0, canvas.right - dock.left);
+    const bottom = compactLayout.matches ? Math.max(0, canvas.bottom - dock.top) : 0;
+    setSafeInsets({
+      right: Math.min(covered, canvas.width),
+      bottom: Math.min(bottom, canvas.height),
+      top: compactLayout.matches ? Math.max(0, controls.top - canvas.top) : 0,
+      left: compactLayout.matches ? Math.max(0, controls.left - canvas.left) : 0,
+    });
+  };
+
+  // The studio dock floats over the map's top-left corner, where the map's own
+  // controls start; app.css lays them out against its edges.
+  const studioDock = root.querySelector(".agent-studio-dock");
+  const reportStudioDock = () => {
+    if (!studioDock) return;
+    const dock = studioDock.getBoundingClientRect();
+    const cockpit = root.getBoundingClientRect();
+    root.style.setProperty("--agent-studio-dock-bottom", `${Math.max(0, dock.bottom - cockpit.top)}px`);
+    root.style.setProperty("--agent-studio-dock-right", `${Math.max(0, dock.right - cockpit.left)}px`);
   };
 
   const applyLayout = () => {
     root.classList.toggle("agent-compact", compactLayout.matches);
+    const edgeToEdge = Boolean(config.simControls) && compactLayout.matches;
+    document.body.classList.toggle("sim-edge-to-edge", edgeToEdge);
+    viewportMeta?.setAttribute("content", edgeToEdge
+      ? `${originalViewport.replace(/,?\s*viewport-fit=[^,]+/g, "")}, viewport-fit=cover`
+      : originalViewport);
     // Its toggle is hidden at this width, so an open monitor would strand the
     // page on a stage it cannot leave.
     if (monitorTooNarrow.matches) setView("live");
     panel.setCompact(compactLayout.matches);
     studio.setCompact(compactLayout.matches);
     reportSafeArea();
+    reportStudioDock();
   };
   compactLayout.addEventListener("change", applyLayout);
   monitorTooNarrow.addEventListener("change", applyLayout);
-  const safeAreaObserver = new ResizeObserver(reportSafeArea);
-  safeAreaObserver.observe(root);
-  safeAreaObserver.observe(feedFrame);
+  const layoutObserver = new ResizeObserver(() => {
+    reportSafeArea();
+    reportStudioDock();
+  });
+  layoutObserver.observe(root);
+  layoutObserver.observe(feedFrame);
+  if (dockPanel) layoutObserver.observe(dockPanel);
+  if (studioDock) layoutObserver.observe(studioDock);
   applyLayout();
 
   const parts = [
@@ -292,7 +331,9 @@ function buildAgentView(root) {
       destroy: () => {
         compactLayout.removeEventListener("change", applyLayout);
         monitorTooNarrow.removeEventListener("change", applyLayout);
-        safeAreaObserver.disconnect();
+        layoutObserver.disconnect();
+        document.body.classList.remove("sim-edge-to-edge");
+        viewportMeta?.setAttribute("content", originalViewport);
       },
     },
     ...(challengePanel ? [challengePanel] : []),
@@ -340,4 +381,3 @@ function buildAgentView(root) {
     },
   };
 }
-
