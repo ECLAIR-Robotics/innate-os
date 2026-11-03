@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Innate Inc
+from custom_skills.beep.beep import Beep
 from innate_skills.arm.arm_move import ArmMove
 from innate_skills.arm.close_gripper import CloseGripper
 from innate_skills.arm.open_gripper import OpenGripper
@@ -42,6 +43,7 @@ class DemoAgent(Agent):
             HeadEmotion,
             ChangeVolume,
             DropInBox,
+            Beep,
         ]
 
     def get_inputs(self) -> list[InputRef]:
